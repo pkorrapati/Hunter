@@ -2,7 +2,7 @@
 # sudo apt-get install libasio-dev
 import rospy
 
-from std_msgs.msg import Bool, Int8, Int16
+from std_msgs.msg import Bool, Int8, Int16, Float32
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Joy, JoyFeedback
 
@@ -42,6 +42,7 @@ class Steer:
         self.STOP = Twist()     # All zeros for emergency stop
         self.vel = Twist()      # Actual control commands
         self.selectedGear = Int8()
+        self.throttle = Float32()
 
         # self.rev = False # Reverse
         
@@ -56,23 +57,25 @@ class Steer:
         # Publishers
         self.pub_motion = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.pub_gear = rospy.Publisher('/gear', Int8, queue_size=2)
+        self.pub_throttle = rospy.Publisher('/throttle', Float32, queue_size=2)
 
         self.pub_gear.publish(self.selectedGear)
 
     def mobilize(self, data):
-        self.pub_motion.publish(self.vel)     
+        self.pub_motion.publish(self.vel)    
+        
     
     def input(self, data):        
         if data.buttons[UP_SHFT_INDX] and not self.buttonHigh:
             self.buttonHigh = True
-            self.gear = int(limit(self.gear + 1, MIN_GEAR_IDX, MAX_GEAR_IDX))
+            self.gear = limit(self.gear + 1, MIN_GEAR_IDX, MAX_GEAR_IDX)
             self.selectedGear.data = self.gear
             self.pub_gear.publish(self.selectedGear)
             # self.rev = False                # On upshift, set motion to forward direction
 
         elif data.buttons[DN_SHFT_INDX] and not self.buttonHigh:
             self.buttonHigh = True
-            self.gear = int(limit(self.gear - 1, MIN_GEAR_IDX, MAX_GEAR_IDX))
+            self.gear = limit(self.gear - 1, MIN_GEAR_IDX, MAX_GEAR_IDX)
             self.selectedGear.data = self.gear
             self.pub_gear.publish(self.selectedGear)
             # self.rev = True                 # On downshift, set motion to reverse direction
@@ -80,23 +83,28 @@ class Steer:
         elif not data.buttons[UP_SHFT_INDX] and not data.buttons[DN_SHFT_INDX] and self.buttonHigh:
             self.buttonHigh = False
 
-        acc = limit((data.axes[ACCEL_INDX] + 1) * 0.5, 0.0, 1.0) * pow(-1, self.rev)
+        acc = limit((data.axes[ACCEL_INDX] + 1) * 0.5, 0.0, 1.0)
         brk = limit((data.axes[BRAKE_INDX] + 1) * 0.5, 0.0, 1.0)
         clt = limit((data.axes[CLUCH_INDX] + 1) * 0.5, 0.0, 1.0)
 
         d = limit(data.axes[STEER_INDX] * 1, -1.0, 1.0)
+
+        self.throttle.data = acc
 
         mul = 0
 
         if self.gear == REV_GEAR_IDX:
             mul = -1.0
         elif self.gear == ONE_GEAR_IDX:
-            mul == 2 * MAX_LIN_VEL / 3
+            mul = 2 * MAX_LIN_VEL / 3
         elif self.gear == TWO_GEAR_IDX:
-            mul == MAX_LIN_VEL
+            mul = MAX_LIN_VEL
 
-        self.vel.linear.x = acc * mul
+        self.vel.linear.x = mul * acc
         self.vel.angular.z = d * MAX_STEER
+
+        self.pub_throttle.publish(self.throttle)
+        # self.pub_motion.publish(self.vel)    
         
 if __name__ == '__main__':
     try:
